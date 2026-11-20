@@ -114,15 +114,118 @@ const READ_TOOL = {
   },
 };
 
+const CLICK_TOOL = {
+  name: 'click_text',
+  description:
+    'Click a link or button on the open page by its visible text (e.g. "Travel", "Next", "Add to basket"), wait for the page to load, and report the new URL. Use the exact words you saw with read_page.',
+  inputSchema: {
+    type: 'object',
+    properties: { text: { type: 'string', description: 'Visible text of the link or button to click.' } },
+    required: ['text'],
+  },
+};
+
+const TYPE_TOOL = {
+  name: 'type_text',
+  description:
+    'Type into a text field on the open page, found by its label, placeholder or name (e.g. "Search", "Username"), and optionally press Enter to submit. Reports the URL afterwards.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      field: { type: 'string', description: 'Label, placeholder or name of the field. Use "search" for a search box.' },
+      text: { type: 'string', description: 'Text to type.' },
+      submit: { type: 'boolean', description: 'Press Enter after typing (default false).' },
+    },
+    required: ['field', 'text'],
+  },
+};
+
+async function settle(page) {
+  await page.waitForLoadState('domcontentloaded', { timeout: 10000 }).catch(() => {});
+  await page.waitForTimeout(500);
+}
+
+async function where(page) {
+  return `Now on: ${page.url()}\nTitle: ${await page.title().catch(() => '')}\nCall read_page to read it.`;
+}
+
+async function firstVisible(candidates) {
+  for (const loc of candidates) {
+    const n = await loc.count().catch(() => 0);
+    for (let i = 0; i < Math.min(n, 5); i++) {
+      const el = loc.nth(i);
+      if (await el.isVisible().catch(() => false)) return el;
+    }
+  }
+  return null;
+}
+
+async function clickText({ text }) {
+  const page = browserRef ? activePage(browserRef) : null;
+  if (!page) return 'No page is open. Call browser_navigate first.';
+  const t = String(text || '').trim();
+  if (!t) return 'Give the visible text of the link or button.';
+  // Models often swap straight and curly quotes, so try both spellings.
+  const variants = [...new Set([t, t.replace(/[\u2018\u2019]/g, "'"), t.replace(/'/g, '\u2019')])];
+  const el = await firstVisible(
+    variants.flatMap((v) => [
+      page.getByRole('link', { name: v, exact: true }),
+      page.getByRole('button', { name: v, exact: true }),
+      page.getByRole('link', { name: v }),
+      page.getByRole('button', { name: v }),
+      page.getByText(v, { exact: true }),
+      page.getByText(v),
+    ]),
+  );
+  if (!el) return `Nothing clickable with the text "${t}" is visible. Use read_page to check the exact wording.`;
+  await el.scrollIntoViewIfNeeded().catch(() => {});
+  await el.click({ timeout: 5000 });
+  await settle(page);
+  return `Clicked "${t}".\n${await where(page)}`;
+}
+
+async function typeText({ field, text, submit }) {
+  const page = browserRef ? activePage(browserRef) : null;
+  if (!page) return 'No page is open. Call browser_navigate first.';
+  const f = String(field || '').trim();
+  const candidates = [
+    page.getByLabel(f),
+    page.getByPlaceholder(f),
+    page.getByRole('textbox', { name: f }),
+    page.getByRole('searchbox', { name: f }),
+    page.locator(`input[name="${f.replace(/"/g, '')}" i], textarea[name="${f.replace(/"/g, '')}" i]`),
+  ];
+  if (/search/i.test(f)) candidates.push(page.getByRole('searchbox'), page.locator('input[type="search"]'));
+  const el = await firstVisible(candidates);
+  if (!el) return `No text field matching "${f}" is visible. Use read_page or browser_snapshot to find its label.`;
+  await el.fill(String(text ?? ''), { timeout: 5000 });
+  if (submit) {
+    await el.press('Enter');
+    await settle(page);
+  }
+  return `Typed into "${f}"${submit ? ' and pressed Enter' : ''}.\n${await where(page)}`;
+}
+
+const LOCAL_TOOLS = { read_page: (a) => readPage(a), click_text: (a) => clickText(a), type_text: (a) => typeText(a) };
+
 async function readPage({ query, max_chars }) {
   const page = browserRef ? activePage(browserRef) : null;
   if (!page) return 'No page is open. Call browser_navigate first.';
   const limit = Math.min(Math.max(Number(max_chars) || 6000, 500), 20000);
-  const text = await page.evaluate(() => {
-    const root =
-      document.querySelector('main, article, [role="main"], #content, #main') || document.body;
-    return root ? root.innerText : '';
-  });
+  const grab = () =>
+    page.evaluate(() => {
+      const root =
+        document.querySelector('main, article, [role="main"], #content, #main') || document.body;
+      return root ? root.innerText : '';
+    });
+  await settle(page);
+  let text;
+  try {
+    text = await grab();
+  } catch {
+    await settle(page); // a navigation was still in progress
+    text = await grab();
+  }
   const lines = text
     .split('\n')
     .map((l) => l.replace(/\s+/g, ' ').trim())
@@ -202,6 +305,34 @@ async function upstream(method, params) {
   }
 }
 
+// Models often send several browser actions at once; run them one after another, in order,
+// so a read never races the navigation a click started.
+let queue = Promise.resolve();
+function serial(fn) {
+  const run = queue.then(fn, fn);
+  queue = run.catch(() => {});
+  return run;
+}
+
+// LibreChat sends a batch of tool calls as parallel HTTP requests, which can arrive out of
+// order (a click before the navigate meant to precede it). Collect calls that arrive within a
+// short window and run them by JSON-RPC id, which follows the order the model emitted them.
+let pending = [];
+let flushTimer = null;
+function ordered(id, fn) {
+  return new Promise((resolve) => {
+    pending.push({ id: typeof id === 'number' ? id : Number(id) || 0, fn, resolve });
+    if (!flushTimer) {
+      flushTimer = setTimeout(() => {
+        const batch = pending.sort((a, b) => a.id - b.id);
+        pending = [];
+        flushTimer = null;
+        for (const item of batch) serial(item.fn).then(item.resolve, item.resolve);
+      }, 150);
+    }
+  });
+}
+
 async function handleRpc(msg) {
   const { id, method, params } = msg;
   if (id === undefined) return null; // notification
@@ -219,27 +350,44 @@ async function handleRpc(msg) {
     case 'tools/list':
       try {
         const { tools = [] } = (await upstream('tools/list', {})) ?? {};
-        return ok({ tools: [...tools, READ_TOOL] });
+        return ok({ tools: [...tools, READ_TOOL, CLICK_TOOL, TYPE_TOOL] });
       } catch (e) {
         return fail(e);
       }
-    case 'tools/call': {
-      if (params?.name !== 'read_page') {
+    case 'tools/call':
+      return ordered(id, () => callTool(id, params));
+    default:
+      return { jsonrpc: '2.0', id, error: { code: -32601, message: 'Method not found' } };
+  }
+}
+
+async function callTool(id, params) {
+  const ok = (result) => ({ jsonrpc: '2.0', id, result });
+  const fail = (e) => ({ jsonrpc: '2.0', id, error: { code: -32603, message: e.message } });
+  {
+      const local = LOCAL_TOOLS[params?.name];
+      if (!local) {
         try {
-          return ok(await upstream('tools/call', params));
+          const result = await upstream('tools/call', params);
+          // A click that opens a new page makes Playwright MCP report "Execution context was
+          // destroyed" even though the click worked. Report the navigation instead.
+          const text = result?.content?.map((c) => c.text ?? '').join('\n') ?? '';
+          const page = browserRef ? activePage(browserRef) : null;
+          if (result?.isError && /Execution context was destroyed/i.test(text) && page) {
+            await settle(page);
+            return ok({ content: [{ type: 'text', text: `Done; the page navigated.\n${await where(page)}` }] });
+          }
+          return ok(result);
         } catch (e) {
           return fail(e);
         }
       }
       try {
-        const text = await readPage(params.arguments ?? {});
+        const text = await local(params.arguments ?? {});
         return ok({ content: [{ type: 'text', text }] });
       } catch (e) {
-        return ok({ isError: true, content: [{ type: 'text', text: `Could not read the page: ${e.message}` }] });
+        return ok({ isError: true, content: [{ type: 'text', text: `${params.name} failed: ${e.message.split('\n')[0]}` }] });
       }
-    }
-    default:
-      return { jsonrpc: '2.0', id, error: { code: -32601, message: 'Method not found' } };
   }
 }
 
