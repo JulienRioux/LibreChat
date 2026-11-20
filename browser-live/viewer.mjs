@@ -159,24 +159,77 @@ async function readPage({ query, max_chars }) {
   return `${header}\n${chunks.join('\n---\n')}`;
 }
 
+// One MCP server for LibreChat: Playwright MCP's browser_* tools (proxied from :8931)
+// plus read_page, so users only switch on a single "Browser" tool.
+const UPSTREAM = process.env.PLAYWRIGHT_MCP_URL || 'http://127.0.0.1:8931/mcp';
+let upstreamSession = null;
+let upstreamId = 0;
+
+async function upstreamPost(body) {
+  const headers = { 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream' };
+  if (upstreamSession) headers['mcp-session-id'] = upstreamSession;
+  const res = await fetch(UPSTREAM, { method: 'POST', headers, body: JSON.stringify(body) });
+  upstreamSession = res.headers.get('mcp-session-id') || upstreamSession;
+  const text = await res.text();
+  if (!res.ok) throw Object.assign(new Error(`upstream ${res.status}`), { status: res.status });
+  if (!text) return null;
+  const data = text.split('\n').filter((l) => l.startsWith('data:')).pop();
+  return JSON.parse(data ? data.slice(5) : text);
+}
+
+async function upstreamInit() {
+  upstreamSession = null;
+  await upstreamPost({
+    jsonrpc: '2.0',
+    id: ++upstreamId,
+    method: 'initialize',
+    params: { protocolVersion: '2025-03-26', capabilities: {}, clientInfo: { name: 'browser-live', version: '1.0.0' } },
+  });
+  await upstreamPost({ jsonrpc: '2.0', method: 'notifications/initialized' });
+}
+
+async function upstream(method, params) {
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      if (!upstreamSession) await upstreamInit();
+      const reply = await upstreamPost({ jsonrpc: '2.0', id: ++upstreamId, method, params });
+      if (reply?.error) throw new Error(reply.error.message);
+      return reply?.result;
+    } catch (e) {
+      upstreamSession = null; // session expired or server restarted: re-initialize once
+      if (attempt === 1) throw e;
+    }
+  }
+}
+
 async function handleRpc(msg) {
   const { id, method, params } = msg;
   if (id === undefined) return null; // notification
   const ok = (result) => ({ jsonrpc: '2.0', id, result });
+  const fail = (e) => ({ jsonrpc: '2.0', id, error: { code: -32603, message: e.message } });
   switch (method) {
     case 'initialize':
       return ok({
         protocolVersion: params?.protocolVersion ?? '2025-03-26',
         capabilities: { tools: {} },
-        serverInfo: { name: 'page-reader', version: '1.0.0' },
+        serverInfo: { name: 'browser', version: '1.0.0' },
       });
     case 'ping':
       return ok({});
     case 'tools/list':
-      return ok({ tools: [READ_TOOL] });
+      try {
+        const { tools = [] } = (await upstream('tools/list', {})) ?? {};
+        return ok({ tools: [...tools, READ_TOOL] });
+      } catch (e) {
+        return fail(e);
+      }
     case 'tools/call': {
       if (params?.name !== 'read_page') {
-        return { jsonrpc: '2.0', id, error: { code: -32602, message: 'Unknown tool' } };
+        try {
+          return ok(await upstream('tools/call', params));
+        } catch (e) {
+          return fail(e);
+        }
       }
       try {
         const text = await readPage(params.arguments ?? {});

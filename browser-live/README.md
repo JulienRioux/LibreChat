@@ -6,8 +6,9 @@ Lets you watch, in the chat's **Session** panel, the browser that the "+ Browser
   (via `viewer.mjs`) and attaches Playwright MCP to it over CDP, so the model's `browser_*` tools and
   the live view share one browser.
 - `viewer.mjs` streams the active tab as MJPEG on port 9333 (`/stream`, `/frame.jpg`, `/status`).
-- `viewer.mjs` also serves a tiny MCP server at `/mcp` (port 9333) with one tool, `read_page`, which
-  returns only the passages of the open page that match a query. Small local models can't fit a full
+- `viewer.mjs` also serves the MCP endpoint LibreChat uses, at `/mcp` on port 9333: it proxies Playwright
+  MCP's `browser_*` tools and adds `read_page`, which returns only the passages of the open page that
+  match a query, so users switch on a single "Browser" tool. Small local models can't fit a full
   page snapshot (a Wikipedia article is ~90k tokens), so this is how they read pages.
 - `client/src/components/Chat/Session/BrowserLive.tsx` shows that stream as a "Browser" section in the
   Session panel. It only appears while the viewer answers. Override the address at build time with
@@ -37,13 +38,9 @@ And in `librechat.yaml`:
 ```yaml
 mcpSettings:
   allowedAddresses:
-    - 'playwright-mcp:8931'
     - 'playwright-mcp:9333'
 mcpServers:
   playwright:
-    type: streamable-http
-    url: http://playwright-mcp:8931/mcp
-  page-reader:
     type: streamable-http
     url: http://playwright-mcp:9333/mcp
 ```
