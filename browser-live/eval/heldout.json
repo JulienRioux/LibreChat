@@ -1,0 +1,48 @@
+[
+  {
+    "id": "quotes-page-two",
+    "question": "On https://quotes.toscrape.com/ who is the author of the first quote on the second page?",
+    "expect": ["marilyn monroe"]
+  },
+  {
+    "id": "quotes-tag-count",
+    "question": "On https://quotes.toscrape.com/ how many quotes are tagged \"friendship\"?",
+    "expect": ["\\b(5|five)\\b"],
+    "reject": ["\\b(10|ten)\\b"]
+  },
+  {
+    "id": "books-cheapest-poetry",
+    "question": "On https://books.toscrape.com/ which book in the Poetry category is the cheapest, and what is its price?",
+    "expect": ["poems that make grown women cry", "14\\.19"]
+  },
+  {
+    "id": "books-stock",
+    "question": "How many copies of the book \"A Light in the Attic\" are in stock on https://books.toscrape.com/ ?",
+    "expect": ["\\b22\\b"]
+  },
+  {
+    "id": "books-page-three",
+    "question": "On https://books.toscrape.com/ what is the title of the last book listed on page 3 of the catalogue?",
+    "expect": ["natural history of us"]
+  },
+  {
+    "id": "hockey-search",
+    "question": "According to the table at https://www.scrapethissite.com/pages/forms/ how many wins did the Boston Bruins have in the 1992 season?",
+    "expect": ["\\b51\\b"]
+  },
+  {
+    "id": "countries-area",
+    "question": "According to https://www.scrapethissite.com/pages/simple/ what is the area of Kiribati in square kilometres?",
+    "expect": ["\\b811\\b"]
+  },
+  {
+    "id": "oscars-dynamic",
+    "question": "On https://www.scrapethissite.com/pages/ajax-javascript/ which film won the most awards in 2012, and how many awards?",
+    "expect": ["life of pi", "\\b(4|four)\\b"]
+  },
+  {
+    "id": "wikipedia-infobox",
+    "question": "According to the English Wikipedia article at https://en.wikipedia.org/wiki/Canada what Gini coefficient does the infobox give, and for which year?",
+    "expect": ["29\\.2", "2024"]
+  }
+]

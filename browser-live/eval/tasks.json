@@ -1,0 +1,103 @@
+[
+  {
+    "id": "shop-price",
+    "question": "Go to {base}/shop/ and tell me the price of the book \"Starlight for Beginners\".",
+    "expect": ["37\\.80?(?!\\d)"]
+  },
+  {
+    "id": "shop-long-title",
+    "question": "On the book shop at {base}/shop/, what is the price of \"The Clockmakers Rebellion of 1742 and What Came After\"?",
+    "expect": ["8\\.31(?!\\d)"]
+  },
+  {
+    "id": "shop-details",
+    "question": "On the book shop at {base}/shop/, how many pages does the book \"How Glaciers Remember\" have, and who published it?",
+    "expect": ["287", "gull\\s*(&|and)\\s*anchor"]
+  },
+  {
+    "id": "shop-count",
+    "question": "How many books are in the Science category of the shop at {base}/shop/ ?",
+    "expect": ["\\b(9|nine)\\b"],
+    "reject": ["\\b(36|12)\\b"]
+  },
+  {
+    "id": "shop-cheapest",
+    "question": "On the shop at {base}/shop/, which book in the Cooking category is the cheapest, and what does it cost?",
+    "expect": ["bread,? smoke", "9\\.65"]
+  },
+  {
+    "id": "shop-search",
+    "question": "Use the search box of the shop at {base}/shop/ to search for \"ferry\". What is the full title of the book it finds, and its price?",
+    "expect": ["last ferry keeper of lake ombra", "30\\.14"]
+  },
+  {
+    "id": "shop-rating",
+    "question": "On the shop at {base}/shop/, how many stars out of five is \"Starlight for Beginners\" rated?",
+    "expect": ["\\b(5|five)\\s*(stars?|out of|/)|rat(ed|ing)[^.]{0,20}\\b(5|five)\\b"],
+    "reject": [
+      "not (shown|visible|available|displayed|provided)",
+      "could ?n.t|cannot|unable|no rating"
+    ]
+  },
+  {
+    "id": "shop-page-two",
+    "question": "On the shop at {base}/shop/, what is the title of the first book listed on page 2 of \"All books\"?",
+    "expect": ["cartographer who lied"]
+  },
+  {
+    "id": "wiki-infobox",
+    "question": "According to the article at {base}/wiki/Aldoria, what was the population of Aldoria in the 2024 census?",
+    "expect": ["3912480"]
+  },
+  {
+    "id": "wiki-prose",
+    "question": "According to the article at {base}/wiki/Aldoria, what share of Aldoria's export earnings came from tin in 2023?",
+    "expect": ["34\\s*(%|percent|per cent)"]
+  },
+  {
+    "id": "wiki-table",
+    "question": "According to the article at {base}/wiki/Aldoria, which city is the third largest in Aldoria, and what is its population?",
+    "expect": ["sorrow bay", "287410"]
+  },
+  {
+    "id": "wiki-synonym",
+    "question": "According to the article at {base}/wiki/Aldoria, how many seats does Aldoria's parliament have?",
+    "expect": ["\\b180\\b"]
+  },
+  {
+    "id": "wiki-history",
+    "question": "According to the article at {base}/wiki/Aldoria, in what year did the Tin Wars end, and which treaty ended them?",
+    "expect": ["1688", "quillhaven"]
+  },
+  {
+    "id": "news-two-pages",
+    "question": "On the news site at {base}/news/ there is a story about the harbour bridge. What was the final bill for the repair work?",
+    "expect": ["18\\.4\\s*(million|m\\b)"]
+  },
+  {
+    "id": "news-byline",
+    "question": "On the front page of the news site at {base}/news/, who wrote the story about the tin museum?",
+    "expect": ["corin vale"]
+  },
+  {
+    "id": "docs-default",
+    "question": "In the Tarn documentation at {base}/docs/, what is the default value of the retry_backoff option?",
+    "expect": ["750\\s*ms"]
+  },
+  {
+    "id": "live-price",
+    "question": "On https://books.toscrape.com/ what is the price of the book \"Olio\"?",
+    "expect": ["23\\.88"]
+  },
+  {
+    "id": "live-count",
+    "question": "On https://books.toscrape.com/ how many books are in the Travel category?",
+    "expect": ["\\b(11|eleven)\\b"],
+    "reject": ["\\b1000\\b"]
+  },
+  {
+    "id": "live-upc",
+    "question": "On https://books.toscrape.com/ what is the UPC of the book \"Sharp Objects\"?",
+    "expect": ["e00eb4fd7b871a48"]
+  }
+]

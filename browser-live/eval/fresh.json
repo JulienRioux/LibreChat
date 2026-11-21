@@ -1,0 +1,38 @@
+[
+  {
+    "id": "quotes-js-last",
+    "question": "The page https://quotes.toscrape.com/js/ shows quotes. Who is the author of the last quote on that page?",
+    "expect": ["steve martin"]
+  },
+  {
+    "id": "quotes-author-born",
+    "question": "On https://quotes.toscrape.com/ look at the second quote. According to its author's page on that site, when and where was the author born?",
+    "expect": ["july 31,? 1965|31 july,? 1965", "yate"]
+  },
+  {
+    "id": "books-category",
+    "question": "On https://books.toscrape.com/ which category does the book \"Tipping the Velvet\" belong to?",
+    "expect": ["historical fiction"]
+  },
+  {
+    "id": "books-classics-count",
+    "question": "How many books are in the Classics category on https://books.toscrape.com/ ?",
+    "expect": ["\\b(19|nineteen)\\b"],
+    "reject": ["\\b1000\\b"]
+  },
+  {
+    "id": "govuk-bank-holiday",
+    "question": "According to https://www.gov.uk/bank-holidays what is the date of the Summer bank holiday in England and Wales in 2027?",
+    "expect": ["30 august|august 30"]
+  },
+  {
+    "id": "frames-first-family",
+    "question": "The page https://www.scrapethissite.com/pages/frames/ lists turtle families. What is the first family it lists?",
+    "expect": ["carettochelyidae"]
+  },
+  {
+    "id": "wikipedia-table",
+    "question": "According to https://en.wikipedia.org/wiki/Provinces_and_territories_of_Canada what was the population of Prince Edward Island in the 2021 census?",
+    "expect": ["154331"]
+  }
+]
