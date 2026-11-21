@@ -46,7 +46,9 @@ changes nothing. The mapping lives in `tokens.css`, which the app stylesheet imp
 `@librechat/client/theme.css` publishes, so a consumer's utilities are the app's.
 
 The stock families name Inter (`font-sans`, `font-theme-ui`) and Roboto Mono (`font-mono`), and
-the ClickHouse theme names Inconsolata. `theme.css` ships all three: `fonts.css` declares their
+the ClickHouse theme names Inconsolata. Source Code Pro is bundled for a deployment that wants it:
+name it in a theme's `fontFamily` (and `displayFontFamily`, which follows it) for UI text, in
+`monoFontFamily` for code, or in both. `theme.css` ships all four: `fonts.css` declares their
 `@font-face` rules against the package's own files by export (`@librechat/client/fonts/*`), and
 the host's bundler (Vite, webpack's css-loader, esbuild) resolves and emits them, exactly as the
 app's build does. A pipeline that serves the compiled CSS without a bundler has to serve those

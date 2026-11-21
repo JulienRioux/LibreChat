@@ -2,8 +2,9 @@
  * The font faces the stock theme and the bundled themes name, and the single source for them.
  *
  * `tokens.css` imports this file, so the app and a consumer of `@librechat/client/theme.css` load
- * the same files: Inter for `font-sans` and `font-theme-ui`, Roboto Mono for `font-mono`, and
- * Inconsolata, which the ClickHouse theme opts into. Each `url()` names the file by its package
+ * the same files: Inter for `font-sans` and `font-theme-ui`, Roboto Mono for `font-mono`,
+ * Inconsolata, which the ClickHouse theme opts into, and Source Code Pro, which a deployment theme
+ * opts into by naming it in `fontFamily` or `monoFontFamily`. Each `url()` names the file by its package
  * export (`@librechat/client/fonts/*`) rather than by a relative path, and the host's bundler
  * resolves and emits it. A relative path would be read against the wrong file: Vite inlines this
  * stylesheet before Tailwind runs, and Tailwind reports every declaration it emits as coming from
@@ -111,4 +112,22 @@
   font-style: normal;
   font-weight: 700;
   src: url('@librechat/client/fonts/inconsolata-latin-700-normal.woff2') format('woff2');
+}
+
+/* Source Code Pro ships as one variable file per style, so a single face answers every weight a
+ * theme draws UI text, headings and code in (200 to 900) with a real cut, never a synthesized one. */
+@font-face {
+  font-display: swap;
+  font-family: Source Code Pro;
+  font-style: normal;
+  font-weight: 200 900;
+  src: url('@librechat/client/fonts/source-code-pro-latin-wght-normal.woff2') format('woff2');
+}
+
+@font-face {
+  font-display: swap;
+  font-family: Source Code Pro;
+  font-style: italic;
+  font-weight: 200 900;
+  src: url('@librechat/client/fonts/source-code-pro-latin-wght-italic.woff2') format('woff2');
 }

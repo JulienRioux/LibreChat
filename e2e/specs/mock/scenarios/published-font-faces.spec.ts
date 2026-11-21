@@ -6,7 +6,8 @@ import { inOneProject, repoRoot, run } from './lint.helpers';
 import { NEW_CHAT_PATH } from '../helpers';
 
 /**
- * `@librechat/client/theme.css` names Inter, Roboto Mono and Inconsolata, and ships their faces:
+ * `@librechat/client/theme.css` names Inter, Roboto Mono, Inconsolata and Source Code Pro, and ships
+ * their faces:
  * `fonts.css` declares them against the package's own files, which the host's bundler resolves
  * and emits. The consumer scenario builds the documented setup with Vite and
  * `@tailwindcss/postcss`, the combination where a relative `url()` in an imported stylesheet is
@@ -18,7 +19,7 @@ const PROBE_DIR = resolve(repoRoot, 'e2e/specs/.test-results/published-font-face
 const PACKAGE_ROOT = resolve(repoRoot, 'packages/client');
 const FONT_SOURCES = resolve(PACKAGE_ROOT, 'src/theme/fonts');
 
-const FAMILIES = ['Inter', 'Roboto Mono', 'Inconsolata'];
+const FAMILIES = ['Inter', 'Roboto Mono', 'Inconsolata', 'Source Code Pro'];
 
 const CONTENT_TYPES: Record<string, string> = {
   '.css': 'text/css',
