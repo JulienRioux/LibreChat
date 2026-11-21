@@ -113,6 +113,20 @@ describe(
       assert.match(alone.text, /^Clicked "Travel" \[5\]\./);
     });
 
+    test('goes back without waiting out a timeout', async () => {
+      // The browser is started by hand here, not by Playwright: without the flag that turns
+      // the back/forward cache off, this call returns the right page only after 25 seconds.
+      await call('open_url', { url: `${base}/shop/` });
+      const category = await call('click', { id: 5 });
+      assert.match(category.text, /^Clicked "Travel" \[5\]\./);
+      const started = Date.now();
+      const back = await call('go_back', {});
+      const took = Date.now() - started;
+      assert.equal(back.failed, false);
+      assert.match(back.text, new RegExp(`^URL: ${base}/shop/$`, 'm'));
+      assert.ok(took < 5000, `go_back took ${took} ms`);
+    });
+
     test('serves the live view status', async () => {
       const status = await fetch(`http://127.0.0.1:${PORT}/status`).then((r) => r.json());
       assert.ok('url' in status && 'title' in status);

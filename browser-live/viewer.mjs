@@ -25,6 +25,9 @@ const chrome = spawn(
     '--disable-dev-shm-usage',
     `--remote-debugging-port=${CDP_PORT}`,
     '--window-size=1280,800',
+    // A page restored from the back/forward cache fires no load events, so Playwright's
+    // goBack would wait out its whole timeout. Playwright passes this flag to browsers it launches.
+    '--disable-back-forward-cache',
     '--user-data-dir=/tmp/browser-live-profile',
     'about:blank',
   ],
