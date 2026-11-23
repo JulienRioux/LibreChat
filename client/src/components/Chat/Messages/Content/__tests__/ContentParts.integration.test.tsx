@@ -431,6 +431,152 @@ describe('ContentParts integration: adjacent prose identity', () => {
   );
 });
 
+describe('ContentParts integration: browser frame', () => {
+  const baseProps = {
+    messageId: 'msg1',
+    isCreatedByUser: false,
+    isLast: true,
+    isSubmitting: false,
+    showThinking: false,
+    isLatestMessage: true,
+  };
+
+  const step = (id: string, tool: string, args: string, output: string): TMessageContentParts =>
+    ({
+      type: ContentTypes.TOOL_CALL,
+      [ContentTypes.TOOL_CALL]: { id, name: `${tool}${MCP_DELIMITER}browser`, args, output },
+    }) as unknown as TMessageContentParts;
+
+  /** A screenshot the browser took for the user; `audience` is what marks it as one. */
+  const shot = (toolCallId: string, name: string, audience: string[] | null = ['user']) =>
+    ({
+      file_id: name,
+      filename: `${name}.jpeg`,
+      filepath: `/images/${name}.jpeg`,
+      width: 1280,
+      height: 600,
+      messageId: 'm1',
+      toolCallId,
+      conversationId: 'c1',
+      ...(audience == null ? {} : { audience }),
+    }) as unknown as TAttachment;
+
+  const opened = step(
+    's1',
+    'open_url',
+    '{"url":"https://example.com/shop/"}',
+    'All books\nURL: https://example.com/shop/\nWhole page, 1 lines:\n1| Travel [5]',
+  );
+  const clicked = step(
+    's2',
+    'click',
+    '{"id":5}',
+    'Clicked "Travel" [5].\nTravel\nURL: https://example.com/shop/travel\nWhole page, 1 lines:',
+  );
+  const searched = step(
+    's3',
+    'find_in_page',
+    '{"text":"atlas"}',
+    'Travel\nURL: https://example.com/shop/travel\nBest matches for "atlas":',
+  );
+  const shots = [shot('s1', 'one'), shot('s2', 'two'), shot('s3', 'three')];
+
+  const frames = () => screen.queryAllByTestId('browse-frame');
+  const picture = (frame: HTMLElement) => within(frame).getByRole('img');
+
+  it('shows the screenshots of a run of browser steps as one frame, on the newest step', () => {
+    renderContentParts({ ...baseProps, content: [opened, clicked, searched], attachments: shots });
+
+    expect(frames()).toHaveLength(1);
+    const [frame] = frames();
+    expect(picture(frame)).toHaveAttribute('src', '/images/three.jpeg');
+    expect(within(frame).getByText('3 / 3')).toBeInTheDocument();
+    expect(within(frame).getByText('example.com/shop/travel')).toBeInTheDocument();
+    expect(within(frame).getByText('find_in_page')).toBeInTheDocument();
+    expect(within(frame).getByText('atlas')).toBeInTheDocument();
+    // The frame is the only place a screenshot is drawn: no stack of images beside it.
+    expect(screen.queryByTestId('attachment-group')).not.toBeInTheDocument();
+  });
+
+  it('steps back through the run, showing where each step left the browser', () => {
+    renderContentParts({ ...baseProps, content: [opened, clicked, searched], attachments: shots });
+    const [frame] = frames();
+    const back = () => fireEvent.click(within(frame).getByRole('button', { name: /previous/i }));
+
+    back();
+    expect(picture(frame)).toHaveAttribute('src', '/images/two.jpeg');
+    expect(within(frame).getByText('Clicked "Travel" [5].')).toBeInTheDocument();
+
+    back();
+    expect(picture(frame)).toHaveAttribute('src', '/images/one.jpeg');
+    expect(within(frame).getByText('example.com/shop/')).toBeInTheDocument();
+  });
+
+  it('follows the run while it streams, one screenshot per finished step', () => {
+    const live = { ...baseProps, isSubmitting: true };
+    const { rerender } = renderContentParts({
+      ...live,
+      content: [opened],
+      attachments: shots.slice(0, 1),
+    });
+    expect(picture(frames()[0])).toHaveAttribute('src', '/images/one.jpeg');
+
+    rerender(
+      <RecoilRoot>
+        <ContentParts {...live} content={[opened, clicked]} attachments={shots.slice(0, 2)} />
+      </RecoilRoot>,
+    );
+
+    expect(frames()).toHaveLength(1);
+    expect(picture(frames()[0])).toHaveAttribute('src', '/images/two.jpeg');
+    expect(within(frames()[0]).getByText('2 / 2')).toBeInTheDocument();
+  });
+
+  it('gives each run of steps its own frame when the reply speaks between them', () => {
+    renderContentParts({
+      ...baseProps,
+      content: [opened, makeTextPart('The shop has a travel shelf.'), clicked],
+      attachments: shots.slice(0, 2),
+    });
+
+    expect(frames().map((frame) => picture(frame).getAttribute('src'))).toEqual([
+      '/images/one.jpeg',
+      '/images/two.jpeg',
+    ]);
+  });
+
+  it('keeps the other files of a step in their own row beside the frame', () => {
+    const report = {
+      file_id: 'report',
+      filename: 'report.csv',
+      filepath: '/files/report.csv',
+      messageId: 'm1',
+      toolCallId: 's1',
+      conversationId: 'c1',
+    } as unknown as TAttachment;
+
+    renderContentParts({ ...baseProps, content: [opened], attachments: [shots[0], report] });
+
+    expect(frames()).toHaveLength(1);
+    const rows = screen.getAllByTestId('attachment-group');
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toHaveAttribute('data-paths', '/files/report.csv');
+  });
+
+  it('leaves an image a tool returned as its result with the other attachments', () => {
+    renderContentParts({
+      ...baseProps,
+      content: [opened, clicked],
+      attachments: [shot('s1', 'one', null), shot('s2', 'two', ['user', 'assistant'])],
+    });
+
+    expect(frames()).toHaveLength(0);
+    expect(
+      screen.getAllByTestId('attachment-group').map((row) => row.getAttribute('data-paths')),
+    ).toEqual(['/images/one.jpeg', '/images/two.jpeg']);
+  });
+});
+
 describe('ContentParts integration: MCP image hoist and grouping', () => {
   const baseProps = {
     messageId: 'msg1',

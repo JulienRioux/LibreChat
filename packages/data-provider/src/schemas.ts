@@ -1132,6 +1132,11 @@ export type TAttachmentMetadata = {
   agentId?: string;
   /** Host run-step owner when one agent repeats a provider tool-call id. */
   stepId?: string;
+  /**
+   * Who a tool addressed an image to, when it left the model out: a view for the user to look
+   * at, such as a screenshot of the step the tool just took. Absent on any other attachment.
+   */
+  audience?: Array<'user' | 'assistant'>;
   workspaceChange?: WorkspaceChange;
   [Tools.memory]?: MemoryArtifact;
   [Tools.ui_resources]?: UIResource[];

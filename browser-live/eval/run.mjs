@@ -61,7 +61,11 @@ async function rpc(url, method, params) {
 async function call(url, name, args) {
   try {
     const result = await rpc(url, 'tools/call', { name, arguments: args });
-    const text = (result?.content ?? []).map((c) => c.text ?? '').join('\n');
+    // The screenshot in a result is for the chat; a model is only ever given the text.
+    const text = (result?.content ?? [])
+      .filter((c) => c.type === 'text')
+      .map((c) => c.text ?? '')
+      .join('\n');
     return { text, failed: result?.isError === true };
   } catch (e) {
     return { text: `Error: ${e.message}`, failed: true };
@@ -197,7 +201,8 @@ async function attempt(opts, task, defs, system) {
     if (calls.length === 0) {
       const answer = (message.content ?? '').trim();
       log.answer = answer;
-      log.outcome = answer ? (passed(task, answer) ? 'pass' : 'wrong') : 'empty';
+      log.outcome = 'empty';
+      if (answer) log.outcome = passed(task, answer) ? 'pass' : 'wrong';
       // An empty turn usually hides a tool call the server could not parse; keep what was thought.
       if (!answer)
         log.note = {

@@ -1,5 +1,5 @@
 #!/bin/sh
-# Headless Chromium, the browser tools and the live MJPEG view (viewer.mjs).
+# Headless Chromium and the browser tools, each result with a screenshot (viewer.mjs).
 # With BROWSER_TOOLS=full, Playwright MCP is attached to the same browser over CDP and its
 # tools are offered too. Tools that a visited page registers (WebMCP) are never collected.
 set -e

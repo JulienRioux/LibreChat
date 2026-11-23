@@ -22,8 +22,19 @@ async function rpc(method, params, id = ++next) {
 
 const call = async (name, args, id) => {
   const reply = await rpc('tools/call', { name, arguments: args }, id);
-  return { text: reply.result.content[0].text, failed: reply.result.isError === true };
+  const [said, ...rest] = reply.result.content;
+  return { text: said.text, failed: reply.result.isError === true, rest };
 };
+
+/** Width and height from a JPEG's frame header. */
+function size(jpeg) {
+  for (let i = 2; i + 9 < jpeg.length; i += 2 + jpeg.readUInt16BE(i + 2)) {
+    const marker = jpeg[i + 1];
+    const frame = marker >= 0xc0 && marker <= 0xcf && ![0xc4, 0xc8, 0xcc].includes(marker);
+    if (frame) return { width: jpeg.readUInt16BE(i + 7), height: jpeg.readUInt16BE(i + 5) };
+  }
+  return null;
+}
 
 describe(
   'server',
@@ -127,9 +138,42 @@ describe(
       assert.ok(took < 5000, `go_back took ${took} ms`);
     });
 
-    test('serves the live view status', async () => {
-      const status = await fetch(`http://127.0.0.1:${PORT}/status`).then((r) => r.json());
-      assert.ok('url' in status && 'title' in status);
+    test('attaches a screenshot of the page, addressed to the user alone', async () => {
+      const opened = await call('open_url', { url: `${base}/shop/` });
+      assert.equal(opened.rest.length, 1, 'one picture after the text');
+      const [shot] = opened.rest;
+      assert.equal(shot.type, 'image');
+      assert.equal(shot.mimeType, 'image/jpeg');
+      // The chat host keeps an image for the user out of what the model reads.
+      assert.deepEqual(shot.annotations, { audience: ['user'] });
+      const jpeg = Buffer.from(shot.data, 'base64');
+      assert.deepEqual([...jpeg.subarray(0, 3)], [0xff, 0xd8, 0xff], 'a JPEG');
+      // The viewport, not the whole page: the fixture shop is taller than one screen.
+      const { width, height } = size(jpeg);
+      assert.equal(width, 1280);
+      assert.ok(height >= 400 && height <= 800, `viewport height, got ${height}`);
+    });
+
+    test('attaches a screenshot to views and to failed actions alike', async () => {
+      await call('open_url', { url: `${base}/shop/` });
+      const read = await call('read_page', { line: 1 });
+      assert.equal(read.failed, false);
+      assert.equal(read.rest[0]?.type, 'image');
+      const missed = await call('click', { id: 9999 });
+      assert.equal(missed.failed, true);
+      assert.equal(missed.rest[0]?.type, 'image');
+    });
+
+    test('shows the page an action led to, not the one it started on', async () => {
+      const listing = await call('open_url', { url: `${base}/shop/` });
+      const travel = await call('click', { id: 5 });
+      assert.match(travel.text, /^Clicked "Travel" \[5\]\./);
+      assert.notEqual(travel.rest[0].data, listing.rest[0].data);
+    });
+
+    test('attaches nothing while no page is open', async () => {
+      const blank = await call('open_url', { url: 'about:blank' });
+      assert.deepEqual(blank.rest, []);
     });
   },
 );

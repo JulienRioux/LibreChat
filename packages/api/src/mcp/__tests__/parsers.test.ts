@@ -300,6 +300,88 @@ describe('formatToolContent', () => {
     });
   });
 
+  describe('images addressed to the user alone', () => {
+    const shot = (audience: Array<'user' | 'assistant'>): t.ImageContent => ({
+      type: 'image',
+      data: 'c2hvdA==',
+      mimeType: 'image/jpeg',
+      annotations: { audience },
+    });
+    const shotUrl = { type: 'image_url', image_url: { url: 'data:image/jpeg;base64,c2hvdA==' } };
+    /** The copy kept for display says who it is for; that is how the chat knows it is a view. */
+    const view = { ...shotUrl, audience: ['user'] };
+
+    it('stores the image for display and keeps it out of model input', () => {
+      const result: t.MCPToolCallResponse = {
+        content: [{ type: 'text', text: 'Page text' }, shot(['user'])],
+      };
+
+      const [content, artifacts] = formatToolContent(result, 'ollama');
+
+      expect(content).toBe('Page text');
+      expect(artifacts).toEqual({ content: [], imageAttachments: [view] });
+    });
+
+    it('survives the MCP result schema, which is what the connection hands over', () => {
+      const parsed = CallToolResultSchema.parse({
+        content: [{ type: 'text', text: 'Page text' }, shot(['user'])],
+      });
+
+      const [, artifacts] = formatToolContent(parsed as t.MCPToolCallResponse, 'openai');
+
+      expect(artifacts).toEqual({ content: [], imageAttachments: [view] });
+    });
+
+    it('still gives the model the images that name it, in the order they came', () => {
+      const chart: t.ImageContent = { type: 'image', data: 'Y2hhcnQ=', mimeType: 'image/png' };
+      const chartUrl = { type: 'image_url', image_url: { url: 'data:image/png;base64,Y2hhcnQ=' } };
+      const result: t.MCPToolCallResponse = {
+        content: [shot(['user']), chart, shot(['user', 'assistant'])],
+      };
+
+      const [content, artifacts] = formatToolContent(result, 'anthropic');
+
+      expect(content).toBe('');
+      expect(artifacts).toEqual({
+        content: [chartUrl, shotUrl],
+        imageAttachments: [view, chartUrl, shotUrl],
+      });
+    });
+
+    it('treats an empty audience as no audience at all', () => {
+      const [, artifacts] = formatToolContent({ content: [shot([])] }, 'openai');
+
+      expect(artifacts).toEqual({ content: [shotUrl] });
+    });
+
+    it('leaves the payload out of the text an unrecognized provider reads', () => {
+      const result: t.MCPToolCallResponse = {
+        content: [{ type: 'text', text: 'Page text' }, shot(['user'])],
+      };
+
+      const [content, artifacts] = formatToolContent(result, 'unknown' as t.Provider);
+
+      expect(content).toBe('Page text');
+      expect(artifacts).toEqual({ content: [], imageAttachments: [view] });
+    });
+
+    it('applies the size cap to an image the model will never see', () => {
+      const original = process.env.MCP_IMAGE_DATA_MAX_BYTES;
+      process.env.MCP_IMAGE_DATA_MAX_BYTES = '2';
+      try {
+        expect(() => formatToolContent({ content: [shot(['user'])] }, 'openai')).toThrow(
+          'MCP image result exceeds maximum size of 2 bytes',
+        );
+      } finally {
+        if (original === undefined) {
+          delete process.env.MCP_IMAGE_DATA_MAX_BYTES;
+        } else {
+          process.env.MCP_IMAGE_DATA_MAX_BYTES = original;
+        }
+      }
+    });
+  });
+
   describe('resource handling', () => {
     it('should handle UI resources in artifacts', () => {
       const result: t.MCPToolCallResponse = {

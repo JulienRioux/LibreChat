@@ -1,5 +1,10 @@
 import sharp from 'sharp';
-import { resizeImageToFit, createImageToolArtifact, getImageAttachmentContent } from './resize';
+import {
+  resizeImageToFit,
+  createImageToolArtifact,
+  getImageAttachmentContent,
+  getImageAttachmentMetadata,
+} from './resize';
 
 /** Fills a raw RGB buffer with incompressible noise so the encoded PNG stays large. */
 function randomRawBuffer(width: number, height: number, channels: 3 | 4 = 3): Buffer {
@@ -136,5 +141,20 @@ describe('generated image artifacts', () => {
 
   it('rejects invalid generated image bytes before model delivery', async () => {
     await expect(createImageToolArtifact(Buffer.alloc(6 * 1024 * 1024))).rejects.toThrow();
+  });
+});
+
+describe('image attachment metadata', () => {
+  const image_url = { url: 'data:image/jpeg;base64,c2hvdA==' };
+
+  it('keeps the audience of an image addressed to the user alone', () => {
+    expect(
+      getImageAttachmentMetadata({ type: 'image_url', image_url, audience: ['user'] }),
+    ).toEqual({ audience: ['user'] });
+  });
+
+  it('adds nothing to an image the model was given, or to content that is not an image', () => {
+    expect(getImageAttachmentMetadata({ type: 'image_url', image_url })).toEqual({});
+    expect(getImageAttachmentMetadata({ type: 'text', text: 'legacy' })).toEqual({});
   });
 });

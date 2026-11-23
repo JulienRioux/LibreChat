@@ -132,6 +132,34 @@ export function toAbsoluteFilePath(path: string, baseUrl: string): string {
 }
 
 /**
+ * Saves an image under `name`. The bytes are fetched first so the browser saves them rather
+ * than navigating to the address; when that fails the address is followed as a download link,
+ * which still saves a file the app serves itself.
+ */
+export async function saveImage(url: string, name: string): Promise<void> {
+  const follow = (href: string) => {
+    const link = document.createElement('a');
+    link.href = href;
+    link.download = name || 'image.png';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+  try {
+    const response = await fetch(url);
+    if (!response.ok) {
+      throw new Error(`Failed to fetch image: ${response.status}`);
+    }
+    const objectUrl = window.URL.createObjectURL(await response.blob());
+    follow(objectUrl);
+    window.URL.revokeObjectURL(objectUrl);
+  } catch (error) {
+    console.error('Download failed:', error);
+    follow(url);
+  }
+}
+
+/**
  * Lookup key for a markdown image destination, or `''` when the source is
  * already an address rather than a name — anything carrying a scheme, or a
  * root-relative path this app serves.

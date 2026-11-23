@@ -332,6 +332,14 @@ export {
   isInternalSandboxArtifact,
 } from './components/parts/attachmentTypes';
 
+/** Browsing: the screenshots an MCP tool sends back of its steps, as one frame to step through. */
+export { default as BrowseFrame } from './components/parts/browse/Frame';
+export type { BrowseFrameProps } from './components/parts/browse/Frame';
+export { default as BrowseViewer } from './components/parts/browse/Viewer';
+export type { BrowseViewerProps } from './components/parts/browse/Viewer';
+export { isShot, toShots } from './components/parts/browse/steps';
+export type { Shot, ShotSource, BrowseCall, BrowsePage } from './components/parts/browse/steps';
+
 /** Tool approval: the shared decision state and the composer's review panel. */
 export {
   default as ApprovalProvider,

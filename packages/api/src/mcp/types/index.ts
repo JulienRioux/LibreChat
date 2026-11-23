@@ -133,7 +133,15 @@ export type FormattedContent =
       image_url: {
         url: string;
       };
+      /**
+       * Who the tool addressed the image to, when it said so and left the model out. Only ever
+       * set on a display copy in `imageAttachments`, never on model-bound `content`.
+       */
+      audience?: ImageAudience;
     };
+
+/** The readers an MCP content block names in its annotations. */
+export type ImageAudience = NonNullable<NonNullable<ImageContent['annotations']>['audience']>;
 
 export type FileSearchSource = {
   fileId: string;

@@ -1,5 +1,6 @@
 import type { TAttachment } from 'librechat-data-provider';
 import {
+  saveImage,
   attachmentIdentity,
   attachmentRenderKey,
   buildAttachmentsByName,
@@ -276,5 +277,54 @@ describe('attachmentRenderKey', () => {
     expect(
       attachmentRenderKey(attachment({ file_id: undefined, filepath: undefined })),
     ).toBeUndefined();
+  });
+});
+
+describe('saveImage', () => {
+  const original = {
+    fetch: global.fetch,
+    create: URL.createObjectURL,
+    revoke: URL.revokeObjectURL,
+  };
+  /** Every link the helper followed: where it pointed and the name it saves under. */
+  let followed: Array<{ href: string | null; download: string }>;
+
+  beforeEach(() => {
+    followed = [];
+    jest.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function click(
+      this: HTMLAnchorElement,
+    ) {
+      followed.push({ href: this.getAttribute('href'), download: this.download });
+    });
+    URL.createObjectURL = jest.fn(() => 'blob:saved');
+    URL.revokeObjectURL = jest.fn();
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+    global.fetch = original.fetch;
+    URL.createObjectURL = original.create;
+    URL.revokeObjectURL = original.revoke;
+  });
+
+  it('saves the fetched bytes under the given name and releases them', async () => {
+    global.fetch = jest.fn().mockResolvedValue({ ok: true, blob: async () => new Blob(['x']) });
+
+    await saveImage('/images/shot.jpeg', 'shot.jpeg');
+
+    expect(global.fetch).toHaveBeenCalledWith('/images/shot.jpeg');
+    expect(followed).toEqual([{ href: 'blob:saved', download: 'shot.jpeg' }]);
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:saved');
+    expect(document.querySelector('a')).toBeNull();
+  });
+
+  it('follows the address as a download when the bytes cannot be fetched', async () => {
+    jest.spyOn(console, 'error').mockImplementation(() => undefined);
+    global.fetch = jest.fn().mockResolvedValue({ ok: false, status: 404 });
+
+    await saveImage('/images/shot.jpeg', '');
+
+    expect(followed).toEqual([{ href: '/images/shot.jpeg', download: 'image.png' }]);
+    expect(URL.createObjectURL).not.toHaveBeenCalled();
   });
 });

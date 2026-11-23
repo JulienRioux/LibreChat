@@ -45,6 +45,7 @@ jest.mock('@librechat/api', () => ({
   isCodeSessionToolName: jest.requireActual('@librechat/api').isCodeSessionToolName,
   collectToolCallIds: jest.requireActual('@librechat/api').collectToolCallIds,
   getImageAttachmentContent: jest.requireActual('@librechat/api').getImageAttachmentContent,
+  getImageAttachmentMetadata: jest.requireActual('@librechat/api').getImageAttachmentMetadata,
   captureSubagentIdentity: jest.requireActual('@librechat/api').captureSubagentIdentity,
   feedSubagentAggregator: jest.requireActual('@librechat/api').feedSubagentAggregator,
   createToolTimingAdapter: jest.requireActual('@librechat/api').createToolTimingAdapter,
@@ -797,6 +798,47 @@ describe('createToolEndCallback', () => {
       expect(artifact.content).toBe(content);
     },
   );
+
+  it('keeps the audience of an image a tool addressed to the user on its attachment', async () => {
+    const { saveBase64Image } = require('~/server/services/Files/process');
+    saveBase64Image.mockImplementation(async (url) => ({ file_id: url.slice(-8) }));
+    const toolEndCallback = createToolEndCallback({ req, res, artifactPromises });
+    await toolEndCallback(
+      {
+        output: {
+          name: 'open_url_mcp_browser',
+          tool_call_id: 'call-open',
+          artifact: {
+            content: [],
+            imageAttachments: [
+              {
+                type: 'image_url',
+                image_url: { url: 'data:image/jpeg;base64,c2hvdA==' },
+                audience: ['user'],
+              },
+              { type: 'image_url', image_url: { url: 'data:image/png;base64,Y2hhcnQ=' } },
+            ],
+          },
+        },
+      },
+      { run_id: 'run-1', thread_id: 'thread-1', provider: 'ollama' },
+    );
+
+    const [view, chart] = await Promise.all(artifactPromises);
+    expect(view).toEqual({
+      file_id: 'c2hvdA==',
+      messageId: 'run-1',
+      toolCallId: 'call-open',
+      conversationId: 'thread-1',
+      audience: ['user'],
+    });
+    expect(chart).toEqual({
+      file_id: 'Y2hhcnQ=',
+      messageId: 'run-1',
+      toolCallId: 'call-open',
+      conversationId: 'thread-1',
+    });
+  });
 
   it.each(['createToolEndCallback', 'createResponsesToolEndCallback'])(
     '%s preserves memory payloads and their execution owner',

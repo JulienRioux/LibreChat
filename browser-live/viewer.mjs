@@ -1,6 +1,6 @@
 // The browser that LibreChat's browser presets drive.
-// Starts a headless Chromium, serves the browser tools as an MCP server on :9333/mcp,
-// and streams the active tab as MJPEG on the same port for the Session panel.
+// Starts a headless Chromium and serves the browser tools as an MCP server on :9333/mcp.
+// Every tool result carries a screenshot of the page for the chat to show.
 import http from 'node:http';
 import { spawn } from 'node:child_process';
 import { createRequire } from 'node:module';
@@ -11,7 +11,10 @@ const { chromium } = require('playwright-core');
 
 const CDP_PORT = 9222;
 const VIEW_PORT = Number(process.env.VIEW_PORT || 9333);
-const FPS = Number(process.env.VIEW_FPS || 3);
+/** `off` leaves the screenshot out of tool results. */
+const SHOTS = process.env.BROWSER_SHOTS !== 'off';
+/** JPEG quality of a screenshot, 1 to 100. */
+const SHOT_QUALITY = Math.min(Math.max(Math.round(Number(process.env.SHOT_QUALITY) || 70), 1), 100);
 /** Characters of page text in one tool result; about 3.6 characters make a token. */
 const VIEW_CHARS = Number(process.env.VIEW_CHARS || 5000);
 /** `compact` offers the six page tools. `full` adds Playwright MCP's own tools, for large models. */
@@ -38,9 +41,8 @@ chrome.on('exit', (code) => {
   process.exit(1);
 });
 
-let latest = null; // { jpeg: Buffer, url, title, at }
-const clients = new Set();
 let lastActive = null;
+const tracked = new WeakSet();
 
 async function connect() {
   for (let i = 0; i < 60; i++) {
@@ -54,6 +56,8 @@ async function connect() {
 }
 
 function track(page) {
+  if (tracked.has(page)) return;
+  tracked.add(page);
   const mark = () => (lastActive = page);
   page.on('framenavigated', (f) => f === page.mainFrame() && mark());
   page.on('load', mark);
@@ -63,17 +67,37 @@ function track(page) {
 
 function activePage(browser) {
   const pages = browser.contexts().flatMap((c) => c.pages());
+  // A page whose context announced nothing (Playwright MCP attaching over CDP) is picked up here.
+  pages.forEach(track);
   if (lastActive && pages.includes(lastActive)) return lastActive;
   return pages.filter((p) => p.url() !== 'about:blank').at(-1) ?? pages.at(-1) ?? null;
 }
 
-function push(frame) {
-  for (const res of clients) {
-    res.write(
-      `--frame\r\nContent-Type: image/jpeg\r\nContent-Length: ${frame.jpeg.length}\r\n\r\n`,
-    );
-    res.write(frame.jpeg);
-    res.write('\r\n');
+/**
+ * The page as a person would see it, attached to every tool result for the chat to show. It is
+ * addressed to the user alone, so the chat host keeps it out of what the model reads.
+ */
+async function shot() {
+  if (!SHOTS) return null;
+  const page = browserRef ? activePage(browserRef) : null;
+  if (!page || page.url() === 'about:blank') return null;
+  try {
+    const jpeg = await page.screenshot({
+      type: 'jpeg',
+      quality: SHOT_QUALITY,
+      timeout: 3000,
+      // Left as they are: freezing animations or hiding the caret would change the page.
+      animations: 'allow',
+      caret: 'initial',
+    });
+    return {
+      type: 'image',
+      data: jpeg.toString('base64'),
+      mimeType: 'image/jpeg',
+      annotations: { audience: ['user'] },
+    };
+  } catch {
+    return null; // the page is busy or gone: the result goes out without a picture
   }
 }
 
@@ -86,41 +110,7 @@ async function main() {
   };
   browser.contexts().forEach(watch);
   browser.on?.('context', watch);
-  console.error(`[viewer] streaming on :${VIEW_PORT}, CDP on :${CDP_PORT}`);
-
-  setInterval(
-    async () => {
-      for (const ctx of browser.contexts()) {
-        for (const p of ctx.pages())
-          if (!p.__tracked) {
-            p.__tracked = true;
-            track(p);
-          }
-      }
-      const page = activePage(browser);
-      if (!page) return;
-      try {
-        const jpeg = await page.screenshot({
-          type: 'jpeg',
-          quality: 55,
-          timeout: 2000,
-          animations: 'allow',
-          caret: 'initial',
-        });
-        const frame = {
-          jpeg,
-          url: page.url(),
-          title: await page.title().catch(() => ''),
-          at: Date.now(),
-        };
-        if (!latest || !latest.jpeg.equals(jpeg)) push(frame);
-        latest = frame;
-      } catch {
-        /* page busy or navigating; try again next tick */
-      }
-    },
-    Math.round(1000 / FPS),
-  );
+  console.error(`[viewer] tools on :${VIEW_PORT}/mcp, CDP on :${CDP_PORT}`);
 }
 
 // ---------------------------------------------------------------------------
@@ -255,8 +245,13 @@ async function handleRpc(msg) {
 async function callTool(id, params, turn) {
   const ok = (result) => ({ jsonrpc: '2.0', id, result });
   const fail = (e) => ({ jsonrpc: '2.0', id, error: { code: -32603, message: e.message } });
-  const said = (text, failed) =>
-    ok({ content: [{ type: 'text', text }], ...(failed ? { isError: true } : {}) });
+  const said = async (text, failed) => {
+    const image = await shot();
+    return ok({
+      content: [{ type: 'text', text }, ...(image ? [image] : [])],
+      ...(failed ? { isError: true } : {}),
+    });
+  };
   const name = params?.name;
   if (pages.has(name)) {
     const { text, failed } = await pages.call(name, params.arguments ?? {}, { turn });
@@ -280,7 +275,8 @@ async function callTool(id, params, turn) {
         `Done; the page navigated.\nNow on: ${page.url()}\nTitle: ${await page.title().catch(() => '')}`,
       );
     }
-    return ok(result);
+    const image = await shot();
+    return ok(image ? { ...result, content: [...(result?.content ?? []), image] } : result);
   } catch (e) {
     return fail(e);
   }
@@ -308,31 +304,8 @@ function serveMcp(req, res) {
 
 http
   .createServer((req, res) => {
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Cache-Control', 'no-store');
     const path = (req.url || '/').split('?')[0];
     if (path === '/mcp') return serveMcp(req, res);
-    if (path === '/stream') {
-      res.writeHead(200, { 'Content-Type': 'multipart/x-mixed-replace; boundary=frame' });
-      clients.add(res);
-      if (latest) push(latest);
-      req.on('close', () => clients.delete(res));
-      return;
-    }
-    if (path === '/frame.jpg' && latest) {
-      res.writeHead(200, { 'Content-Type': 'image/jpeg' });
-      return res.end(latest.jpeg);
-    }
-    if (path === '/status') {
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      return res.end(
-        JSON.stringify({
-          url: latest?.url ?? null,
-          title: latest?.title ?? null,
-          at: latest?.at ?? null,
-        }),
-      );
-    }
     res.writeHead(404).end();
   })
   .listen(VIEW_PORT, '0.0.0.0');

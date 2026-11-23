@@ -2,7 +2,7 @@ import React, { useState, useRef, useMemo, useEffect } from 'react';
 import { Skeleton } from '@librechat/client';
 import { apiBaseUrl } from 'librechat-data-provider';
 import { DialogImage } from '@librechat/chat/components';
-import { cn, toAbsoluteFilePath } from '~/utils';
+import { cn, saveImage, toAbsoluteFilePath } from '~/utils';
 
 /** Max display height for chat images (Tailwind JIT class) */
 export const IMAGE_MAX_H = 'max-h-[45vh]' as const;
@@ -55,34 +55,7 @@ const Image = ({
    *  subpath deployment. */
   const absoluteImageUrl = useMemo(() => toAbsoluteFilePath(imagePath, apiBaseUrl()), [imagePath]);
 
-  const downloadImage = async () => {
-    try {
-      const response = await fetch(absoluteImageUrl);
-      if (!response.ok) {
-        throw new Error(`Failed to fetch image: ${response.status}`);
-      }
-
-      const blob = await response.blob();
-      const url = window.URL.createObjectURL(blob);
-
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = altText || 'image.png';
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-
-      window.URL.revokeObjectURL(url);
-    } catch (error) {
-      console.error('Download failed:', error);
-      const link = document.createElement('a');
-      link.href = absoluteImageUrl;
-      link.download = altText || 'image.png';
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-    }
-  };
+  const downloadImage = () => saveImage(absoluteImageUrl, altText);
 
   useEffect(() => {
     if (width && height && absoluteImageUrl) {

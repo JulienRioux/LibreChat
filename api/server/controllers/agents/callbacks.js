@@ -39,6 +39,7 @@ const {
   feedSubagentAggregator,
   getAttachmentOwnership,
   getImageAttachmentContent,
+  getImageAttachmentMetadata,
   collectToolCallIds,
   createToolTimingAdapter,
   stampCommandExecutor,
@@ -1021,6 +1022,7 @@ function createToolEndCallback({ req, res, artifactPromises, streamId = null, jo
               messageId: metadata.run_id,
               toolCallId: output.tool_call_id,
               conversationId: metadata.thread_id,
+              ...getImageAttachmentMetadata(part),
             });
             if (!streamId && !res.headersSent) {
               return fileMetadata;

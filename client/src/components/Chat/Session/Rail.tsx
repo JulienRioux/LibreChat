@@ -20,7 +20,6 @@ import Section from '../BackgroundTasks/Section';
 import { SESSION_RAIL_ID } from './state';
 import { useLocalize } from '~/hooks';
 import SessionRow from './Row';
-import BrowserLive from './BrowserLive';
 import { cn } from '~/utils';
 
 const isActive = (row: TaskRow) => row.status === 'running' || row.status === 'stopping';
@@ -260,7 +259,6 @@ export default function SessionRail({
             {localize('com_ui_background_tasks_stop_failed')}
           </p>
         )}
-        <BrowserLive />
         {subagents.length > 0 && (
           <Section
             dense

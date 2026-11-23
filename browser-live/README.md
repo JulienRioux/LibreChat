@@ -1,15 +1,15 @@
-# Browser tools and live view
+# Browser tools and screenshots in the chat
 
 A headless Chromium that models drive through six tools, built for small local models with a
-16k–32k context, plus a live view of that browser in the chat's **Session** panel.
+16k–32k context. Every step also sends a screenshot of the page, which the chat shows under the
+steps: the model reads the page as text, the user sees it.
 
-- `viewer.mjs` starts Chromium, serves the tools as an MCP server at `/mcp` on port 9333, and
-  streams the active tab as MJPEG on the same port (`/stream`, `/frame.jpg`, `/status`).
+- `viewer.mjs` starts Chromium and serves the tools as an MCP server at `/mcp` on port 9333. It
+  adds a screenshot of the page to every tool result.
 - `snapshot.mjs` turns the open page into numbered lines of text; `view.mjs` decides how much of
   them to show; `find.mjs` searches them; `tools.mjs` is the six tools.
-- `client/src/components/Chat/Session/BrowserLive.tsx` shows the stream as a "Browser" section in
-  the Session panel while the viewer answers. Override the address at build time with
-  `VITE_BROWSER_LIVE_URL` (default `http://localhost:9333`).
+- `packages/chat/src/components/parts/browse/` is the frame the chat shows the screenshots in,
+  and the viewer it opens.
 
 ## What the model sees
 
@@ -79,6 +79,46 @@ Details that matter for small models:
   always mean an id.
 - Only `http` and `https` addresses can be opened.
 
+## What the user sees
+
+A tool result is the page as text, then a JPEG of the browser's viewport after the step:
+
+```json
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "All books | Paper Lantern Books\nURL: http://localhost:8080/shop/\n…"
+    },
+    {
+      "type": "image",
+      "mimeType": "image/jpeg",
+      "data": "…",
+      "annotations": { "audience": ["user"] }
+    }
+  ]
+}
+```
+
+`audience: ["user"]` is what keeps the image away from the model. LibreChat stores an image
+addressed to the user alone as an attachment of the tool call and leaves it out of what it sends
+to the model, so a text-only model with a small window is given exactly what it was given before.
+An image with no audience is treated as the tool's result and does go to the model.
+
+In the chat, a run of browser steps gets one frame under it: the address the browser was on, the
+screenshot, and what the step did. The frame shows the newest step and follows the run while it
+streams; the arrows step back through it. A click on the screenshot opens the viewer:
+
+- zoom with the wheel, a pinch, `+` and `-`, or the buttons; `0` or a double click fits the page again
+- drag a magnified page to move around it, or use the arrow keys
+- step through the run with the arrows beside the page, the arrow keys, `Home` and `End`, or the
+  strip of thumbnails
+- the address opens the page itself in a new tab, and the download button saves the screenshot
+
+A screenshot is taken whenever a page is open, so a failed step has one too: it shows what the
+page looked like when the step could not be done. LibreChat scales a stored image to at most 768
+pixels on its short side (`fileConfig.imageGeneration` in `librechat.yaml` changes that).
+
 ## Settings
 
 Environment variables of the container:
@@ -87,8 +127,9 @@ Environment variables of the container:
 |---|---|---|
 | `VIEW_CHARS` | `5000` | Characters of page text in one tool result (about 3.6 per token). Lower it for a 16k model. |
 | `BROWSER_TOOLS` | `compact` | `compact` offers the six tools. `full` also starts Playwright MCP on the same browser and offers its `browser_*` tools, for large models. Tools that a page registers through WebMCP are never offered. |
-| `VIEW_PORT` | `9333` | Port for the tools and the live view. |
-| `VIEW_FPS` | `3` | Frames per second of the live view. |
+| `BROWSER_SHOTS` | `on` | `off` leaves the screenshot out of tool results. |
+| `SHOT_QUALITY` | `70` | JPEG quality of a screenshot, 1 to 100. |
+| `VIEW_PORT` | `9333` | Port for the tools. |
 
 ## docker-compose.override.yml
 
@@ -105,9 +146,9 @@ services:
     entrypoint: ["/bin/sh", "/browser-live/start.sh"]
     volumes:
       - ./browser-live:/browser-live:ro
-    ports:
-      - "127.0.0.1:9333:9333"
 ```
+
+The chat reaches the tools over the compose network, so the port needs no mapping to the host.
 
 ## librechat.yaml
 

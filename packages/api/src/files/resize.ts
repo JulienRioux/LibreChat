@@ -1,5 +1,5 @@
 import sharp from 'sharp';
-import type { Artifacts, FormattedContent } from '~/mcp/types';
+import type { Artifacts, FormattedContent, ImageAudience } from '~/mcp/types';
 
 /**
  * Downscales an image buffer until its encoded size fits within `maxBytes`,
@@ -89,4 +89,13 @@ export async function createImageToolArtifact(input: Buffer): Promise<NonNullabl
 /** Existing storage policy applies to originals, including configured resolution. */
 export function getImageAttachmentContent(artifact: NonNullable<Artifacts>): FormattedContent[] {
   return artifact.imageAttachments ?? artifact.content ?? [];
+}
+
+/**
+ * What a stored image attachment keeps of the content it came from: the audience of an image
+ * its tool addressed to the user alone, which is how the chat tells a view to look at from an
+ * image the model was given.
+ */
+export function getImageAttachmentMetadata(part: FormattedContent): { audience?: ImageAudience } {
+  return part.type === 'image_url' && part.audience != null ? { audience: part.audience } : {};
 }

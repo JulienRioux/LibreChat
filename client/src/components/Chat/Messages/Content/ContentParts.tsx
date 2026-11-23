@@ -1,7 +1,12 @@
 import { memo, useRef, useMemo, useEffect, useCallback, useContext, Fragment } from 'react';
 import { useStore } from 'jotai';
 import { Constants, ContentTypes, Tools, imageGenTools } from 'librechat-data-provider';
-import { PendingSkillCall, Container, HiddenAttachmentsContext } from '@librechat/chat/components';
+import {
+  isShot,
+  Container,
+  PendingSkillCall,
+  HiddenAttachmentsContext,
+} from '@librechat/chat/components';
 import {
   hasParallelLanes,
   parallelLaneGroups,
@@ -34,6 +39,7 @@ import type { ActivityPhaseSegment } from '@librechat/chat';
 import type { ReactNode, ReactElement } from 'react';
 import type { ToolCallGroupExpansionState } from './ToolCallGroup';
 import type { MCPAppResourceOccurrence } from '~/utils/mcpApps';
+import type { ShotFile } from './Parts/Shots';
 import {
   mapAttachments,
   getPartKeyIndex,
@@ -59,6 +65,7 @@ import ApprovalProvider from './ApprovalContext';
 import Sources from '~/components/Web/Sources';
 import ToolCallGroup from './ToolCallGroup';
 import { blocksLiveFold } from './live';
+import Shots from './Parts/Shots';
 import Part from './Part';
 
 /** An empty TEXT part — the placeholder some endpoints seed in
@@ -639,7 +646,7 @@ const ContentPartsBody = memo(function ContentPartsBody({
   );
   const inheritedHiddenFiles = useContext(HiddenAttachmentsContext);
   const fileRows = useMemo(() => {
-    type FileRow = { key: string; files: TAttachment[]; source: TAttachment[] };
+    type FileRow = { key: string; files: TAttachment[]; shots: ShotFile[]; source: TAttachment[] };
     const rows = new Map<TMessageContentParts, FileRow>();
     const ownerByFile = new Map<string, { row: FileRow; index: number }>();
     if (
@@ -665,6 +672,7 @@ const ContentPartsBody = memo(function ContentPartsBody({
       const row: FileRow = {
         key: `files-${mediaScope}-${getToolCallId(part)}-${getPartKeyIndex(part, absoluteIndexAt(index))}`,
         files: [],
+        shots: [],
         source: attachmentsForPart(part) ?? files,
       };
       for (const file of files) {
@@ -679,6 +687,17 @@ const ContentPartsBody = memo(function ContentPartsBody({
       }
       // Keep source-only entries so legacy duplicates are suppressed at every matching part.
       rows.set(part, row);
+    }
+    /** Screenshots a tool took of its steps for the user leave the row for the span's browser
+     *  frame. Split only once every row is final: a later part can still replace a file in an
+     *  earlier row by its position. */
+    for (const [part, row] of rows) {
+      const call = part[ContentTypes.TOOL_CALL] as Agents.ToolCall | undefined;
+      if (call == null) continue;
+      const shots = row.files.filter(isShot);
+      if (shots.length === 0) continue;
+      row.shots = shots.map((file) => ({ file, call }));
+      row.files = row.files.filter((file) => !shots.includes(file));
     }
     return rows;
   }, [
@@ -711,14 +730,25 @@ const ContentPartsBody = memo(function ContentPartsBody({
   const hiddenFiles = hiddenFilesRef.current;
   const renderFiles = (parts: ReadonlyArray<TMessageContentParts | undefined>): ReactElement[] => {
     const rows: ReactElement[] = [];
+    /** The screenshots of the whole span: one frame to step through, not an image per call. */
+    const shots: ShotFile[] = [];
+    let frameKey: string | undefined;
     for (const part of parts) {
       const row = part == null ? undefined : fileRows.get(part);
-      if (row == null || row.files.length === 0) continue;
+      if (row == null) continue;
+      if (row.shots.length > 0) {
+        frameKey ??= row.key;
+        shots.push(...row.shots);
+      }
+      if (row.files.length === 0) continue;
       rows.push(
         <HiddenAttachmentsContext.Provider key={row.key} value={inheritedHiddenFiles}>
           <AttachmentGroup attachments={row.files} />
         </HiddenAttachmentsContext.Provider>,
       );
+    }
+    if (frameKey != null) {
+      rows.unshift(<Shots key={`shots-${frameKey}`} files={shots} />);
     }
     return rows;
   };

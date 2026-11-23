@@ -139,6 +139,40 @@ function isImageContent(item: t.ToolContentPart): item is t.ImageContent {
   return item.type === 'image';
 }
 
+/**
+ * MCP lets a server say who a content block is for. An image addressed to the user alone, such
+ * as a screenshot of what the tool just did, is something to look at: it is stored and shown as
+ * an attachment and never becomes model input. An image with no audience, or one that names the
+ * assistant, keeps going to the model. Returns that audience, or `undefined` for such an image.
+ */
+function userOnlyAudience(item: t.ImageContent): t.ImageAudience | undefined {
+  const audience = item.annotations?.audience;
+  if (audience == null || audience.length === 0 || audience.includes('assistant')) {
+    return undefined;
+  }
+  return audience;
+}
+
+/**
+ * The image artifacts of one result. `content` is what the agents package folds into model
+ * input; `imageAttachments` is what the tool-end callback stores for display. They differ when
+ * the model must not see some or all of the images.
+ */
+function imageArtifacts(
+  images: t.FormattedContent[],
+  vision: t.FormattedContent[],
+  isRecognizedProvider: boolean,
+): NonNullable<t.Artifacts> {
+  // Attachment callbacks require content, but unknown providers must not receive vision input.
+  if (!isRecognizedProvider) {
+    return { content: [], imageAttachments: images };
+  }
+  if (vision.length === images.length) {
+    return { content: images };
+  }
+  return { content: vision, imageAttachments: images };
+}
+
 const utf8Decoder = new TextDecoder('utf-8', { fatal: true });
 
 /**
@@ -285,6 +319,9 @@ function parseAsString(result: t.MCPToolCallResponse): string {
       }
       if (isImageContent(item)) {
         assertImageDataWithinLimit(item);
+        if (userOnlyAudience(item) != null) {
+          return '';
+        }
       }
       return JSON.stringify(item, null, 2);
     })
@@ -355,6 +392,8 @@ export function formatToolContent(
   }
 
   const imageUrls: t.FormattedContent[] = [];
+  /** The images the model may see; the rest of `imageUrls` is for the user alone. */
+  const visionUrls: t.FormattedContent[] = [];
   const uiResources: UIResource[] = [];
   let placementMarkerCount = 0;
   // Assistants submits only this string; keep its bounded conversion independent from host UI data.
@@ -370,9 +409,17 @@ export function formatToolContent(
     assertImageDataWithinLimit(item);
     const formatter = imageFormatters.default as t.ImageFormatter;
     const formattedImage = formatter(item);
-    if (formattedImage.type === 'image_url') {
-      imageUrls.push(formattedImage);
+    if (formattedImage.type !== 'image_url') {
+      return;
     }
+    const audience = userOnlyAudience(item);
+    if (audience == null) {
+      imageUrls.push(formattedImage);
+      visionUrls.push(formattedImage);
+      return;
+    }
+    // A display copy keeps its audience, so the chat can present the image as a view.
+    imageUrls.push({ ...formattedImage, audience });
   };
 
   const contentHandlers: {
@@ -581,10 +628,7 @@ UI Resource Markers Available:
 
   let artifacts: t.Artifacts = undefined;
   if (imageUrls.length > 0) {
-    // Attachment callbacks require content, but unknown providers must not receive vision input.
-    artifacts = isRecognizedProvider
-      ? { content: imageUrls }
-      : { content: [], imageAttachments: imageUrls };
+    artifacts = imageArtifacts(imageUrls, visionUrls, isRecognizedProvider);
   }
 
   if (uiResources.length > 0) {
