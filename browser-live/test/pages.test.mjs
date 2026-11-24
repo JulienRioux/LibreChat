@@ -491,6 +491,36 @@ describe('pages', { skip: chromium ? false : 'playwright-core is not available' 
       assert.match(result.text, /New or changed lines:\n\d+\| Title: Tidewater \| Awards: 4\n/);
     });
 
+    test('shows what a single-page app fetches after its frame has loaded', async () => {
+      const opened = await tools.call('open_url', { url: `${base}/store/` });
+      for (const [title, price] of data.STOCK) {
+        assert.ok(opened.text.includes(`${title} · £${price}`), `missing "${title}"`);
+      }
+    });
+
+    test('waits for results that a search on the same page fetches', async () => {
+      await tools.call('open_url', { url: `${base}/store/` });
+      // As on a real site by the time a model acts: Playwright's network idle has fired for
+      // this document and does not fire again for the request the search starts.
+      await page.waitForLoadState('networkidle');
+      const id = tools.latest().targets.find((t) => t.kind === 'searchbox').id;
+      const result = await tools.call('type_text', { id, text: 'drill', submit: true });
+      assert.match(result.text, /Searched for: drill · 2 found/);
+      assert.match(result.text, /Kestrel Impact Drill · £132\.60/);
+      const all = text(tools.latest());
+      assert.ok(all.includes('Ridgeback Cordless Drill · £89.40'));
+      assert.ok(!all.includes('Hollin Claw Hammer'), 'the list was replaced');
+    });
+
+    test('stops waiting for a request that never ends', async () => {
+      const quick = kit({ current: () => page, open: async () => page, wait: 2000 });
+      const started = Date.now();
+      const opened = await quick.call('open_url', { url: `${base}/store/?live=1` });
+      const took = Date.now() - started;
+      assert.ok(took < 3500, `open_url took ${took} ms`);
+      assert.match(opened.text, /Kestrel Impact Drill · £132\.60/, 'the answered request counted');
+    });
+
     test('follows a link that would open a new tab in the same tab', async () => {
       await page.goto(`${base}/`);
       await page.evaluate(() => {

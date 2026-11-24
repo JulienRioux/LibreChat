@@ -605,7 +605,50 @@ for (const a of document.querySelectorAll('a.year')) {
 </script></body></html>`;
 }
 
-export const data = { products, CITIES, OPTIONS, STORIES, FACTS, CATEGORIES, FILMS };
+// ---------------------------------------------------------------------------
+// Store: a single-page app. The page arrives as an empty frame that its script fills from an
+// API, and a search replaces the list without leaving the page. The API answers late, so the
+// page's text stays still for a while before the content arrives.
+// ---------------------------------------------------------------------------
+const STOCK = [
+  ['Ridgeback Cordless Drill', '89.40'],
+  ['Hollin Claw Hammer', '14.25'],
+  ['Tern Panel Saw', '22.10'],
+  ['Marram Spirit Level', '18.75'],
+  ['Kestrel Impact Drill', '132.60'],
+  ['Fenwick Tape Measure', '9.95'],
+];
+
+function store(url) {
+  // `?live=1` also opens a request the server never answers while the page is open.
+  const live = url.searchParams.get('live') === '1' ? "fetch('/store/api/live');" : '';
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Ironbark Hardware</title></head><body>
+<header><a href="/store/">Ironbark Hardware</a></header>
+<main><h1>All tools</h1>
+<form id="search" role="search"><input type="search" name="q" aria-label="Search tools"> <button>Search</button></form>
+<h2 id="status"></h2>
+<ul id="items"></ul></main>
+<script>
+const items = document.getElementById('items');
+const status = document.getElementById('status');
+async function load(q) {
+  const found = await (await fetch('/store/api/tools?q=' + encodeURIComponent(q))).json();
+  items.innerHTML = found.map((t) => '<li>' + t[0] + ' · £' + t[1] + '</li>').join('');
+  return found.length;
+}
+load('');
+${live}
+document.getElementById('search').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const q = new FormData(e.target).get('q');
+  status.textContent = 'Searched for: ' + q;
+  const count = await load(q);
+  status.textContent += ' · ' + count + ' found';
+});
+</script></body></html>`;
+}
+
+export const data = { products, CITIES, OPTIONS, STORIES, FACTS, CATEGORIES, FILMS, STOCK };
 
 export function render(href) {
   const url = new URL(href, 'http://fixture.test');
@@ -618,6 +661,7 @@ export function render(href) {
   if (url.pathname.startsWith('/news')) return news(url);
   if (url.pathname.startsWith('/docs')) return docs(url);
   if (url.pathname === '/dynamic/') return dynamic();
+  if (url.pathname === '/store/') return store(url);
   if (url.pathname === '/') {
     return '<!doctype html><html><head><title>Fixture index</title></head><body><h1>Fixture sites</h1><ul><li><a href="/shop/">Paper Lantern Books</a></li><li><a href="/wiki/Aldoria">Aldoria</a></li><li><a href="/news/">The Calder Courier</a></li><li><a href="/docs/">Tarn documentation</a></li></ul></body></html>';
   }
@@ -634,6 +678,22 @@ export function serve(port = 8080, host = '127.0.0.1') {
         res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
         res.end(JSON.stringify(films));
       }, 600);
+      return;
+    }
+    if (url.pathname === '/store/api/tools') {
+      // Slower than a tool's look at the page: the text stays still while this is on its way.
+      const words = (url.searchParams.get('q') ?? '').toLowerCase().split(/\s+/).filter(Boolean);
+      const found = STOCK.filter(([title]) => words.every((w) => title.toLowerCase().includes(w)));
+      setTimeout(() => {
+        res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+        res.end(JSON.stringify(found));
+      }, 1200);
+      return;
+    }
+    if (url.pathname === '/store/api/live') {
+      // Held open like a live feed; it ends when the page goes away.
+      const timer = setTimeout(() => res.end(), 60000);
+      res.on('close', () => clearTimeout(timer));
       return;
     }
     const html = render(req.url || '/');

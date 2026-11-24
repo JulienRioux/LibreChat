@@ -60,8 +60,11 @@ Details that matter for small models:
   it gets an id like a button. A `#section` link that only scrolls stays plain text.
 - A frame appears as something to open (`Latest news [12 frame: /news/]`); opening it shows the
   document inside.
-- When a click seems to change nothing, the page gets a moment to finish its requests before the
-  result is written, so content that a script fetches is seen.
+- After every step the page is read only once the requests its scripts started since the step
+  (fetch, XHR and script loads) have been answered and its text has stopped changing, for at most
+  `SETTLE_MS`. A single-page app draws its frame first and fills it from its API, and its search
+  replaces the results without loading a new page. Read any earlier, the model sees a shop with
+  no products, or a result count from before the search.
 - When a model issues several calls at once, a click or typing that follows a page change in the
   same batch is refused: its id was chosen before the model saw the new page.
 - A link shows where it leads when its text does not: another site (`[12: example.org]`) or a
@@ -129,6 +132,7 @@ Environment variables of the container:
 | `BROWSER_TOOLS` | `compact` | `compact` offers the six tools. `full` also starts Playwright MCP on the same browser and offers its `browser_*` tools, for large models. Tools that a page registers through WebMCP are never offered. |
 | `BROWSER_SHOTS` | `on` | `off` leaves the screenshot out of tool results. |
 | `SHOT_QUALITY` | `70` | JPEG quality of a screenshot, 1 to 100. |
+| `SETTLE_MS` | `5000` | Longest wait, in milliseconds, after a step for the page's requests to be answered and its text to stop changing. A request that stays open, such as a live feed, makes the step that started it take this long. |
 | `VIEW_PORT` | `9333` | Port for the tools. |
 
 ## docker-compose.override.yml

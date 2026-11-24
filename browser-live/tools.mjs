@@ -106,17 +106,55 @@ function reason(error) {
   return text.replace(/^(page|locator|elementHandle)\.\w+: /, '');
 }
 
+/** Kinds of request a page's scripts load content with. */
+const CONTENT = new Set(['fetch', 'xhr', 'script']);
+/** @type {WeakMap<Page, Map<import('playwright-core').Request, number>>} */
+const pending = new WeakMap();
+
 /**
- * Waits for a page to stop loading: the document is parsed and its text has stopped growing.
+ * Starts noting the content requests a page makes, and when each one started, for settle() to
+ * wait on. A page already watched is left as it is.
  * @param {Page} page
  */
-export async function settle(page) {
+export function watch(page) {
+  if (pending.has(page)) return;
+  const open = new Map();
+  pending.set(page, open);
+  const done = (request) => open.delete(request);
+  page.on('request', (request) => {
+    if (CONTENT.has(request.resourceType())) open.set(request, Date.now());
+  });
+  page.on('requestfinished', done);
+  page.on('requestfailed', done);
+}
+
+/**
+ * Waits for a page to stop loading: the document is parsed, the content requests it started
+ * since `since` have been answered, and its text has stopped growing. A pause in the text alone
+ * is not the end: a single-page app draws its frame first and fills it from its API a moment
+ * later, and Playwright's network idle fires only once per document, so it misses a search that
+ * runs on the same page. Gives up after `wait` milliseconds, so a request that never ends cannot
+ * hold the tool.
+ * @param {Page} page
+ * @param {{ since?: number, wait?: number }} [opts]   `since` is a `Date.now()` time
+ */
+export async function settle(page, { since = 0, wait = 5000 } = {}) {
+  watch(page);
   await page.waitForLoadState('domcontentloaded', { timeout: 10000 }).catch(() => {});
+  const open = pending.get(page);
+  const end = Date.now() + wait;
   let last = -1;
-  for (let i = 0; i < 10; i++) {
+  // Looks taken while nothing was in flight; ten of them is as long as text may keep changing.
+  let calm = 0;
+  while (calm < 10 && Date.now() < end) {
+    const busy = [...open.values()].some((start) => start >= since);
     const size = await page.evaluate(() => document.body?.textContent?.length ?? 0).catch(() => -1);
-    if (size === last && (size > 0 || i >= 2)) return;
-    last = size;
+    if (!busy) {
+      if (size === last && (size > 0 || calm >= 2)) return;
+      calm++;
+    }
+    // The text counts as steady only across two looks with nothing in flight.
+    last = busy ? -1 : size;
     await page.waitForTimeout(250);
   }
 }
@@ -126,8 +164,9 @@ export async function settle(page) {
  * @param {() => Page | null} deps.current   the page the model is working on
  * @param {() => Promise<Page>} deps.open   makes a page when none is open
  * @param {number} [deps.budget]   characters of page text per result
+ * @param {number} [deps.wait]   milliseconds a step waits at most for the page to finish loading
  */
-export function browser({ current, open, budget = 5000 }) {
+export function browser({ current, open, budget = 5000, wait = 5000 }) {
   /** @type {Snapshot | null} */
   let shown = null;
   let echo = { key: '', text: '', count: 0 };
@@ -136,7 +175,9 @@ export function browser({ current, open, budget = 5000 }) {
 
   const opened = () => {
     const page = current();
-    return page && page.url() !== 'about:blank' ? page : null;
+    if (!page || page.url() === 'about:blank') return null;
+    watch(page);
+    return page;
   };
 
   const ok = (...parts) => ({ text: parts.filter(Boolean).join('\n'), failed: false });
@@ -148,11 +189,15 @@ export function browser({ current, open, budget = 5000 }) {
     return shown;
   };
 
-  /** After an action: follow a tab it may have opened, and wait for the page to settle. */
-  const arrive = async (page) => {
+  /**
+   * After an action: follow a tab it may have opened, and wait for the page to settle.
+   * @param {Page} page
+   * @param {number} since   when the action started
+   */
+  const arrive = async (page, since) => {
     await page.waitForTimeout(250).catch(() => {});
     const now = current() ?? page;
-    await settle(now);
+    await settle(now, { since, wait });
     return now;
   };
 
@@ -226,6 +271,8 @@ export function browser({ current, open, budget = 5000 }) {
       if (!/^(https?:\/\/|about:blank$)/i.test(address))
         return fail(`Only http and https addresses can be opened, not "${address}".`);
       const page = current() ?? (await open());
+      watch(page);
+      const since = Date.now();
       // The status is read from the response itself, so the model learns it even when the
       // navigation is then aborted.
       let status = 0;
@@ -241,11 +288,11 @@ export function browser({ current, open, budget = 5000 }) {
           // The browser's error page for the previous address can still be loading and cut this
           // navigation short; once it has settled, the address opens normally.
           if (!/interrupted by another navigation/.test(String(e?.message))) throw e;
-          await settle(page);
+          await settle(page, { since, wait });
           return go();
         });
       } catch (e) {
-        await settle(page);
+        await settle(page, { since, wait });
         if (status >= 400)
           return fail(
             `The server answered with error ${status} for ${address}: the page does not exist or cannot be shown. Check the address, or go back and follow a link instead.`,
@@ -256,7 +303,7 @@ export function browser({ current, open, budget = 5000 }) {
       } finally {
         page.off('response', seen);
       }
-      await settle(page);
+      await settle(page, { since, wait });
       const snap = await look(page);
       status = response?.status() ?? status;
       // The browser's own error page stands in for an error answer that had no page of its own.
@@ -279,6 +326,7 @@ export function browser({ current, open, budget = 5000 }) {
       const found = await target(page, id);
       if (found.error) return found.error;
       const { before, known, el, n } = found;
+      const since = Date.now();
       try {
         // A link made to open a new tab, and the document inside a frame, are opened in this
         // tab: the model works on one page.
@@ -301,7 +349,7 @@ export function browser({ current, open, budget = 5000 }) {
           return fail(`Could not follow ${name(known)}: ${reason(again)}.`);
         }
       }
-      const now = await arrive(page);
+      const now = await arrive(page, since);
       const after = await react(now, before);
       // A button that did nothing was often meant to be the link beside it: name those links.
       const line = before.lines.find((l) => new RegExp(`\\[${n}[ \\]:]`).test(l.t));
@@ -332,6 +380,7 @@ export function browser({ current, open, budget = 5000 }) {
         );
       }
       const value = String(text ?? '');
+      const since = Date.now();
       let done;
       try {
         if (known.kind === 'select') {
@@ -358,7 +407,7 @@ export function browser({ current, open, budget = 5000 }) {
       } catch (e) {
         return fail(`Could not type into ${name(known)}: ${reason(e)}.`);
       }
-      const now = await arrive(page);
+      const now = await arrive(page, since);
       const after = await react(now, before);
       const moved = after.doc !== before.doc || after.url !== before.url;
       if (!moved && submit !== true && known.kind !== 'select') {
@@ -387,12 +436,13 @@ export function browser({ current, open, budget = 5000 }) {
       const page = opened();
       if (!page) return fail(NONE);
       const from = page.url();
+      const since = Date.now();
       await page.goBack({ waitUntil: 'domcontentloaded', timeout: 15000 }).catch(() => null);
-      await settle(page);
+      await settle(page, { since, wait });
       if (page.url() === 'about:blank') {
         // The blank page the browser started on is not somewhere to return to.
         await page.goForward({ waitUntil: 'domcontentloaded', timeout: 15000 }).catch(() => null);
-        await settle(page);
+        await settle(page, { since, wait });
       }
       if (page.url() === from) return fail('There is no earlier page to go back to.');
       return ok(overview(await look(page), { budget }));

@@ -4,7 +4,7 @@
 import http from 'node:http';
 import { spawn } from 'node:child_process';
 import { createRequire } from 'node:module';
-import { browser as kit, settle } from './tools.mjs';
+import { browser as kit, settle, watch } from './tools.mjs';
 
 const require = createRequire('/app/');
 const { chromium } = require('playwright-core');
@@ -17,6 +17,8 @@ const SHOTS = process.env.BROWSER_SHOTS !== 'off';
 const SHOT_QUALITY = Math.min(Math.max(Math.round(Number(process.env.SHOT_QUALITY) || 70), 1), 100);
 /** Characters of page text in one tool result; about 3.6 characters make a token. */
 const VIEW_CHARS = Number(process.env.VIEW_CHARS || 5000);
+/** Milliseconds a step waits at most for the page's requests and text to settle. */
+const SETTLE_MS = Number(process.env.SETTLE_MS) || 5000;
 /** `compact` offers the six page tools. `full` adds Playwright MCP's own tools, for large models. */
 const TOOLSET = process.env.BROWSER_TOOLS === 'full' ? 'full' : 'compact';
 
@@ -58,6 +60,8 @@ async function connect() {
 function track(page) {
   if (tracked.has(page)) return;
   tracked.add(page);
+  // From the start, so that a page a click opens is waited on with its first requests.
+  watch(page);
   const mark = () => (lastActive = page);
   page.on('framenavigated', (f) => f === page.mainFrame() && mark());
   page.on('load', mark);
@@ -104,12 +108,12 @@ async function shot() {
 async function main() {
   const browser = await connect();
   browserRef = browser;
-  const watch = (ctx) => {
+  const follow = (ctx) => {
     ctx.pages().forEach(track);
     ctx.on('page', track);
   };
-  browser.contexts().forEach(watch);
-  browser.on?.('context', watch);
+  browser.contexts().forEach(follow);
+  browser.on?.('context', follow);
   console.error(`[viewer] tools on :${VIEW_PORT}/mcp, CDP on :${CDP_PORT}`);
 }
 
@@ -125,6 +129,7 @@ const pages = kit({
     return (browserRef.contexts()[0] ?? (await browserRef.newContext())).newPage();
   },
   budget: VIEW_CHARS,
+  wait: SETTLE_MS,
 });
 
 // With BROWSER_TOOLS=full, Playwright MCP's browser_* tools (proxied from :8931) are offered
@@ -270,7 +275,7 @@ async function callTool(id, params, turn) {
     const text = result?.content?.map((c) => c.text ?? '').join('\n') ?? '';
     const page = browserRef ? activePage(browserRef) : null;
     if (result?.isError && /Execution context was destroyed/i.test(text) && page) {
-      await settle(page);
+      await settle(page, { wait: SETTLE_MS });
       return said(
         `Done; the page navigated.\nNow on: ${page.url()}\nTitle: ${await page.title().catch(() => '')}`,
       );
