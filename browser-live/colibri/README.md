@@ -41,22 +41,34 @@ SDKROOT=/Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk make -C ~/colibr
 
 ## Import a GGUF
 
-```bash
-~/colibri/c/coli import --mode link ~/models/Qwen3.6-35B-A3B-GGUF/Qwen3.6-35B-A3B-Q4_K_M.gguf
-```
-
-This writes a model directory next to the file (config, tokenizer, chat template) and links the
-GGUF instead of copying it. The Metal graph reads Q8_0, Q4_K, Q5_K, Q6_K, IQ4_NL and IQ4_XS; a file
-with any other type runs on the CPU engine, with a line that says so.
-
-## Serve
+Each model lives in `~/models/colibri/<id>`, and `<id>` is the model id LibreChat sees:
 
 ```bash
-browser-live/colibri/serve.sh
+~/colibri/c/coli import --mode link --out ~/models/colibri/qwen3.6-35b-a3b-colibri ~/models/Qwen3.6-35B-A3B-GGUF/Qwen3.6-35B-A3B-Q4_K_M.gguf
 ```
 
-It serves on `127.0.0.1:8000` with a 32,768-token window. Only one large model fits at a time:
-stop Ollama's model first, and do not chat on an Ollama preset while colibri runs.
+This writes a model directory (config, tokenizer, chat template) and links the GGUF instead of
+copying it. A model directory imported elsewhere works as a link in that folder. The Metal graph
+reads Q8_0, Q4_K, Q5_K, Q6_K, IQ4_NL and IQ4_XS in Qwen3.5/3.6 MoE files; a file with another type,
+or a model of another family, runs on the CPU engine, with a line that says so.
+
+## Serve and switch
+
+```bash
+browser-live/colibri/use.sh
+```
+
+```bash
+browser-live/colibri/use.sh qwen3.6-35b-a3b-colibri
+```
+
+With no argument it lists the models and marks the one running. With an id it stops the running
+server, starts that model on `127.0.0.1:8000` with a 32,768-token window, and returns once it
+answers (about 4 s for Qwen3.6-35B-A3B). `serve.sh <directory>` runs one in the foreground.
+
+colibri serves one model per process, and the request's `model` must be the one it serves:
+another id gets `model_not_found`. Only one large model fits at a time: stop Ollama's model
+first, and do not chat on an Ollama preset while colibri runs.
 
 ## librechat.yaml
 
@@ -87,6 +99,11 @@ modelSpecs:
         maxContextTokens: 26000   # LibreChat would assume 40,960 for a qwen3 name
         max_tokens: 4096
 ```
+
+List every id of `~/models/colibri` in `models.default` and keep `fetch: false`. A fetched list
+holds only the model that is running, and LibreChat records a request for any other id, such as
+a preset's, as an illegal model request, which counts toward a ban. With the full list, a model
+that is not loaded gets colibri's `model_not_found` instead. Restart LibreChat after adding an id.
 
 ## Measuring
 
